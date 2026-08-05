@@ -1,56 +1,58 @@
-# Centralized Security and Infrastructure Monitoring with Wazuh and Zabbix
+# Wazuh and Zabbix Monitoring for a Proxmox Infrastructure
 
-A centralized monitoring project combining security event detection, system integrity monitoring, infrastructure availability, and performance supervision in a Proxmox-based virtualized environment.
+This project documents the work I completed during my cybersecurity internship to improve security and infrastructure monitoring in a Proxmox-based environment.
 
-## Overview
-This project was completed during a cybersecurity internship and focused on improving visibility across a virtualized infrastructure.
+The solution combines:
 
-The solution combined Wazuh for security monitoring with Zabbix for availability and performance monitoring. It covered Proxmox hosts, Linux systems, selected network equipment, and centralized dashboards for security and operational analysis.
+- **Wazuh** for log analysis, security monitoring and File Integrity Monitoring
+- **Zabbix** for availability, performance and capacity monitoring
 
-All information published in this repository is sanitized. Internal addresses, credentials, hostnames, organization-specific data, and confidential configurations are excluded or replaced with generic values.
+The monitored environment included Proxmox hosts, virtual machines, containers and a FortiGate firewall.
 
-## Objectives
-The main objectives were to:
-
-- Centralize security and infrastructure monitoring
-- Monitor Proxmox hosts and their critical services
-- Detect unauthorized or unexpected file modifications
-- Monitor system availability, disk usage, and resource consumption
-- Collect security and operational events in centralized dashboards
-- Monitor a FortiGate firewall through restricted read-only SNMP access
-- Reduce false positives and improve alert relevance
-- Validate monitoring through controlled test scenarios
+All information published in this repository has been sanitized. Real credentials, IP addresses, hostnames and company-specific information are not included.
 
 ## Architecture
 
-The monitoring environment included:
+```mermaid
+flowchart TB
+    FG["FortiGate Firewall"]
 
-- Wazuh Manager, Indexer, and Dashboard
-- Zabbix Server and Web Interface
-- Proxmox VE hosts
-- Linux and Windows workloads
-- FortiGate firewall monitoring through SNMP
-- Wazuh and Zabbix agents
-- Centralized dashboards and alerting mechanisms
+    subgraph Monitoring["Monitoring Platforms"]
+        WAZUH["Wazuh<br/>Manager, Indexer and Dashboard"]
+        ZABBIX["Zabbix<br/>Server and Web Interface"]
+    end
 
-A sanitized architecture diagram will be added to this section.
+    subgraph Infrastructure["Proxmox Infrastructure"]
+        PVE1["Proxmox Host 1"]
+        PVE2["Proxmox Host 2"]
+        PVE3["Proxmox Host 3"]
+        PVE4["Proxmox Host 4"]
+        SYSTEMS["Virtual Machines and Containers"]
+    end
 
-## Technologies
-| Area | Technologies |
-|---|---|
-| Security monitoring | Wazuh, File Integrity Monitoring, custom rules, MITRE ATT&CK |
-| Infrastructure monitoring | Zabbix, agent-based monitoring, SNMP, triggers |
-| Virtualization | Proxmox VE |
-| Network monitoring | FortiGate, SNMPv2c, ICMP |
-| Operating systems | Linux, Windows Server |
-| Administration | Bash, PowerShell, SSH |
-| Visualization | Wazuh Dashboard, Zabbix Dashboard |
+    PVE1 --> SYSTEMS
+    PVE2 --> SYSTEMS
+    PVE3 --> SYSTEMS
+    PVE4 --> SYSTEMS
 
-## Implementation
+    PVE1 -->|Logs and FIM events| WAZUH
+    PVE2 -->|Logs and FIM events| WAZUH
+    PVE3 -->|Logs and FIM events| WAZUH
+    PVE4 -->|Logs and FIM events| WAZUH
 
-### Wazuh security monitoring
+    PVE1 -->|System metrics| ZABBIX
+    PVE2 -->|System metrics| ZABBIX
+    PVE3 -->|System metrics| ZABBIX
+    PVE4 -->|System metrics| ZABBIX
 
-Wazuh agents were used to collect system events and monitor security-relevant activity on the Proxmox hosts.
+    FG -->|SNMP data| ZABBIX
+```
+
+The diagram uses generic names and does not represent the complete internal company topology.
+
+## Wazuh Security Monitoring
+
+I configured Wazuh agents on the Proxmox hosts to collect system logs and monitor security-related activity.
 
 The implementation included:
 
@@ -58,76 +60,85 @@ The implementation included:
 - File Integrity Monitoring
 - Monitoring of Proxmox configuration paths
 - Custom detection and correlation rules
-- Saved searches for security investigation
-- Dashboard creation
-- Alert validation
-- Noise reduction through targeted exclusions
+- Saved searches for investigations
+- Security dashboards
+- Alert testing
+- False-positive reduction
 
-### Zabbix infrastructure monitoring
+One of the main monitored locations was `/etc/pve`, which contains important Proxmox cluster and firewall configuration files.
 
-Zabbix was used to monitor infrastructure health, availability, and performance.
+I also created a focused search for changes affecting the Proxmox firewall configuration path.
 
-The implementation included:
+### File Integrity Monitoring
 
-- Proxmox host onboarding
-- Agent availability monitoring
-- CPU, memory, swap, and disk monitoring
-- Static disk-usage thresholds
+During testing, I confirmed that File Integrity Monitoring was active across the Proxmox configuration directory.
+
+A frequently updated Proxmox status file was generating unnecessary events. Instead of excluding the entire directory, I excluded only the noisy file to preserve visibility over the remaining configuration paths.
+
+### Custom Correlation Rule
+
+I created a Wazuh correlation rule to detect repeated matching events within a defined period.
+
+The rule used `if_matched_sid`, a frequency threshold and a time window to correlate structured Wazuh events rather than relying on raw log-text matching.
+
+## Zabbix Infrastructure Monitoring
+
+Zabbix was used to monitor the operational state and capacity of the Proxmox hosts.
+
+The monitored areas included:
+
+- Agent availability
+- ICMP availability
+- CPU usage
+- Memory usage
+- Swap usage
+- Disk utilization
 - Disk-capacity forecasting
-- ICMP availability checks
-- Trigger replication across monitored hosts
-- Dashboard and alert configuration
 
-### FortiGate monitoring
+Disk triggers were first tested on one host and then replicated across four Proxmox nodes.
 
-The FortiGate firewall was monitored using read-only SNMP access restricted to the Zabbix server.
+A total of **24 disk-related triggers** were configured, combining static thresholds with forecast-based alerts.
 
-The monitoring scope included:
+An example ICMP trigger expression was:
 
-- Device availability
-- Interface status
-- Interface traffic
-- Resource utilization
-- SNMP communication validation
+```text
+max(/host/icmpping,#3)=0
+```
 
-## Detection and Monitoring Examples
+This trigger activates when the latest three ICMP checks have all failed, reducing alerts caused by a single lost packet.
 
-Examples developed or validated during the project include:
+## FortiGate Monitoring
 
-- Changes to monitored Proxmox configuration files
-- Repeated security events within a defined time window
-- Wazuh agent disconnection
-- Proxmox host unavailability
-- High disk utilization
-- Forecasted disk-capacity exhaustion
-- FortiGate availability and interface monitoring
+The FortiGate firewall was prepared for Zabbix monitoring through SNMPv2c.
+
+The SNMP configuration used:
+
+- Read-only access
+- Access restricted to the Zabbix server
+- SNMPv1 disabled
+- No SNMP exposure on the WAN interface
+
+The intended monitoring scope included device availability, interface status, network traffic and resource usage.
 
 ## Validation
 
-| Test scenario | Expected result |
+| Test | Expected result | Status |
+|---|---|---|
+| Stopping a monitoring agent | Agent-disconnection alert | Validated |
+| Modifying a monitored test file | File Integrity Monitoring alert | Validated |
+| Generating repeated matching events | Correlation alert | Validated |
+| Reaching a disk threshold | Zabbix disk alert | Validated |
+| Failing multiple ICMP checks | Host-unavailable alert | Validated |
+
+All tests were controlled, reversible and designed to avoid disruption to the production environment.
+
+## Technologies
+
+| Area | Technologies |
 |---|---|
-| Stop a monitored agent | An availability or agent-disconnection alert is generated |
-| Modify a monitored test file | A File Integrity Monitoring alert is generated |
-| Reach a disk-usage threshold | The corresponding Zabbix trigger changes state |
-| Simulate repeated matching events | A correlated Wazuh alert is generated |
-| Interrupt ICMP availability | The host-unavailable trigger is activated |
-| Query the FortiGate through SNMP | Authorized monitoring data is returned |
-
-Only controlled and non-destructive validation methods were used.
-
-## Project Structure
-
-```text
-wazuh-zabbix-proxmox-monitoring/
-├── README.md
-├── architecture/
-├── documentation/
-├── wazuh/
-│   ├── configurations/
-│   ├── rules/
-│   └── queries/
-├── zabbix/
-│   ├── triggers/
-│   └── templates/
-├── screenshots/
-└── validation/
+| Security monitoring | Wazuh, File Integrity Monitoring, custom rules |
+| Infrastructure monitoring | Zabbix, agents, triggers, forecasting |
+| Virtualization | Proxmox VE |
+| Network monitoring | FortiGate, SNMPv2c, ICMP |
+| Systems | Linux, Windows Server |
+| Administration | Bash, PowerShell, SSH |
